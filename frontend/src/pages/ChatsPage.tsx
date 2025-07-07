@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
+import { Box, Paper, Typography, CircularProgress, Alert, List, ListItem, ListItemText } from '@mui/material';
 
 interface ChatMeta {
   chat_id: string;
@@ -34,24 +35,39 @@ const ChatsPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="max-w-2xl mx-auto mt-10 p-6 bg-white rounded shadow">
-      <h2 className="text-2xl font-bold mb-4">Your Chats</h2>
-      {loading && <div>Loading...</div>}
-      {error && <div className="text-red-500">{error}</div>}
-      {!loading && !error && (
-        <ul className="divide-y divide-gray-200">
-          {chats.length === 0 && <li className="py-4 text-gray-500">No chats found.</li>}
-          {chats.map(chat => (
-            <li key={chat.chat_id} className="py-4 flex items-center justify-between">
-              <Link to={`/chats/${chat.chat_id}`} className="text-indigo-600 hover:underline">
-                <span className="font-medium">{chat.prompt.slice(0, 60)}{chat.prompt.length > 60 ? '...' : ''}</span>
-              </Link>
-              <span className="text-xs text-gray-500 ml-4">{new Date(chat.timestamp).toLocaleString()}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Box display="flex" justifyContent="center" alignItems="flex-start" minHeight="60vh" py={8}>
+      <Paper elevation={6} sx={{ maxWidth: 600, width: '100%', p: 5, borderRadius: 3, border: '1px solid', borderColor: 'primary.light' }}>
+        <Typography variant="h4" fontWeight={700} color="primary" align="center" mb={4}>
+          Your Chats
+        </Typography>
+        {loading && <Box display="flex" justifyContent="center" my={4}><CircularProgress /></Box>}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {!loading && !error && (
+          <List>
+            {chats.length === 0 && (
+              <ListItem>
+                <ListItemText primary={<Typography color="text.secondary">No chats found.</Typography>} />
+              </ListItem>
+            )}
+            {chats.map(chat => (
+              <ListItem key={chat.chat_id} divider secondaryAction={
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(chat.timestamp).toLocaleString()}
+                </Typography>
+              }>
+                <ListItemText
+                  primary={
+                    <Typography component={RouterLink} to={`/chats/${chat.chat_id}`} color="primary" sx={{ textDecoration: 'none', fontWeight: 500, '&:hover': { textDecoration: 'underline' } }}>
+                      {chat.prompt.slice(0, 60)}{chat.prompt.length > 60 ? '...' : ''}
+                    </Typography>
+                  }
+                />
+              </ListItem>
+            ))}
+          </List>
+        )}
+      </Paper>
+    </Box>
   );
 };
 

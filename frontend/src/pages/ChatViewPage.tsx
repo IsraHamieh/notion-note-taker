@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link as RouterLink } from 'react-router-dom';
+import { Box, Paper, Typography, CircularProgress, Alert, List, ListItem, ListItemText, Button } from '@mui/material';
 
 interface Chat {
   chat_id: string;
@@ -37,36 +38,44 @@ const ChatViewPage: React.FC = () => {
   }, [chat_id]);
 
   return (
-    <div className="max-w-2xl mx-auto mt-10 p-6 bg-white rounded shadow">
-      <Link to="/chats" className="text-indigo-600 hover:underline text-sm">&larr; Back to Chats</Link>
-      {loading && <div>Loading...</div>}
-      {error && <div className="text-red-500">{error}</div>}
-      {chat && !loading && !error && (
-        <div>
-          <h2 className="text-xl font-bold mb-2">Prompt</h2>
-          <div className="mb-4 whitespace-pre-line">{chat.prompt}</div>
-          <h3 className="font-semibold mb-1">Files</h3>
-          <ul className="mb-4 list-disc list-inside">
-            {chat.files && chat.files.length > 0 ? (
-              chat.files.map((file, idx) => (
-                <li key={idx}>
-                  {file.url ? (
-                    <a href={file.url} className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">{file.name}</a>
-                  ) : (
-                    <span>{file.name}</span>
-                  )}
-                </li>
-              ))
-            ) : (
-              <li className="text-gray-500">No files uploaded.</li>
-            )}
-          </ul>
-          <h3 className="font-semibold mb-1">Response</h3>
-          <div className="whitespace-pre-line bg-gray-100 p-3 rounded text-gray-800">{chat.response}</div>
-          <div className="mt-4 text-xs text-gray-500">{new Date(chat.timestamp).toLocaleString()}</div>
-        </div>
-      )}
-    </div>
+    <Box display="flex" justifyContent="center" alignItems="flex-start" minHeight="60vh" py={8}>
+      <Paper elevation={6} sx={{ maxWidth: 600, width: '100%', p: 5, borderRadius: 3, border: '1px solid', borderColor: 'primary.light' }}>
+        <Button component={RouterLink} to="/chats" size="small" sx={{ mb: 2, textTransform: 'none' }}>
+          &larr; Back to Chats
+        </Button>
+        {loading && <Box display="flex" justifyContent="center" my={4}><CircularProgress /></Box>}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {chat && !loading && !error && (
+          <Box>
+            <Typography variant="h5" fontWeight={700} mb={2}>Prompt</Typography>
+            <Typography mb={3} sx={{ whiteSpace: 'pre-line' }}>{chat.prompt}</Typography>
+            <Typography variant="subtitle1" fontWeight={600} mb={1}>Files</Typography>
+            <List sx={{ mb: 3 }}>
+              {chat.files && chat.files.length > 0 ? (
+                chat.files.map((file, idx) => (
+                  <ListItem key={idx} disablePadding>
+                    <ListItemText
+                      primary={file.url ? (
+                        <a href={file.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2', textDecoration: 'underline' }}>{file.name}</a>
+                      ) : (
+                        <span>{file.name}</span>
+                      )}
+                    />
+                  </ListItem>
+                ))
+              ) : (
+                <ListItem>
+                  <ListItemText primary={<Typography color="text.secondary">No files uploaded.</Typography>} />
+                </ListItem>
+              )}
+            </List>
+            <Typography variant="subtitle1" fontWeight={600} mb={1}>Response</Typography>
+            <Typography sx={{ whiteSpace: 'pre-line', bgcolor: 'grey.100', p: 2, borderRadius: 1, color: 'grey.900' }}>{chat.response}</Typography>
+            <Typography mt={4} variant="caption" color="text.secondary">{new Date(chat.timestamp).toLocaleString()}</Typography>
+          </Box>
+        )}
+      </Paper>
+    </Box>
   );
 };
 

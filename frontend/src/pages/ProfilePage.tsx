@@ -1,29 +1,93 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Box, Paper, Typography, Button, CircularProgress, Stack } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
 
 const ProfilePage: React.FC = () => {
-  // TODO: Replace with real user info from context/auth
-  const user = {
-    name: 'Jane Doe',
-    email: 'jane.doe@example.com',
+  const [user, setUser] = useState<{ email: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    fetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Not authenticated');
+        return res.json();
+      })
+      .then(data => {
+        setUser({ email: data.email });
+        setLoading(false);
+      })
+      .catch(() => {
+        navigate('/login');
+      });
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    setLogoutLoading(true);
+    const token = localStorage.getItem('token');
+    
+    try {
+      // Call logout API
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (error) {
+      // Continue with logout even if API call fails
+      console.error('Logout API error:', error);
+    } finally {
+      // Use AuthContext logout and redirect
+      logout();
+      navigate('/login');
+    }
   };
 
+  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh"><CircularProgress /></Box>;
+  if (!user) return null;
+
   return (
-    <div className="max-w-lg mx-auto mt-10 p-6 bg-white rounded shadow">
-      <h2 className="text-2xl font-bold mb-4">Profile</h2>
-      <div className="mb-4">
-        <div className="font-semibold">Name:</div>
-        <div className="mb-2">{user.name}</div>
-        <div className="font-semibold">Email:</div>
-        <div>{user.email}</div>
-      </div>
-      <Link
-        to="/keys"
-        className="inline-block px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-      >
-        Manage API Keys
-      </Link>
-    </div>
+    <Box display="flex" justifyContent="center" alignItems="flex-start" minHeight="60vh" py={8}>
+      <Paper elevation={6} sx={{ maxWidth: 480, width: '100%', p: 5, borderRadius: 3, border: '1px solid', borderColor: 'primary.light' }}>
+        <Typography variant="h4" fontWeight={700} color="primary" align="center" mb={4}>
+          Profile
+        </Typography>
+        <Box mb={4}>
+          <Typography variant="subtitle1" fontWeight={600} color="text.secondary">Email:</Typography>
+          <Typography>{user.email}</Typography>
+        </Box>
+        <Stack spacing={2}>
+          <Button
+            href="/keys"
+            variant="contained"
+            color="primary"
+            fullWidth
+            sx={{ fontWeight: 600 }}
+          >
+            Manage API Keys
+          </Button>
+          <Button
+            onClick={handleLogout}
+            variant="outlined"
+            color="error"
+            fullWidth
+            disabled={logoutLoading}
+            sx={{ fontWeight: 600 }}
+          >
+            {logoutLoading ? 'Logging out...' : 'Logout'}
+          </Button>
+        </Stack>
+      </Paper>
+    </Box>
   );
 };
 

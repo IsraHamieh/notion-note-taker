@@ -4,18 +4,32 @@ import {
   Toolbar,
   IconButton,
   Typography,
-  Box
+  Box,
+  Button
 } from '@mui/material';
 import {
   Brightness4 as DarkModeIcon,
   Brightness7 as LightModeIcon,
-  AccountCircle
+  AccountCircle,
+  Logout
 } from '@mui/icons-material';
 import { useTheme } from '../context/ThemeContext';
-import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 const Navbar: React.FC = () => {
   const { isDarkMode, toggleTheme } = useTheme();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  // Hide logout button on login and register pages
+  const hideLogout = location.pathname === '/login' || location.pathname === '/register';
 
   return (
     <AppBar position="fixed" color="default" elevation={1}>
@@ -41,6 +55,16 @@ const Navbar: React.FC = () => {
           <IconButton color="inherit" component={Link} to="/profile">
             <AccountCircle />
           </IconButton>
+          {!hideLogout && (
+            <Button
+              color="inherit"
+              startIcon={<Logout />}
+              onClick={handleLogout}
+              sx={{ textTransform: 'none' }}
+            >
+              Logout
+            </Button>
+          )}
         </Box>
       </Toolbar>
     </AppBar>

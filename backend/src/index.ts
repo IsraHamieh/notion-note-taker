@@ -1,8 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import passport from 'passport';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 
@@ -17,29 +15,24 @@ app.use(cors({
   credentials: true,
 }));
 
-// Passport configuration
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL,
-  },
-  (accessToken, refreshToken, profile, done) => {
-    return done(null, { profile });
-  }
-));
-
 // Routes
 app.use('/api/auth', authRoutes);
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI!)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch((error) => {
-    console.error('MongoDB connection error:', error);
-  }); 
+const mongoUri = process.env.MONGO_URI;
+if (!mongoUri) {
+  throw new Error('MONGO_URI is not set in environment variables');
+}
+
+mongoose.connect(mongoUri)
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  });
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+}); 

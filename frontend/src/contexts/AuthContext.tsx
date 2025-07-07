@@ -31,7 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const loadUser = async () => {
       if (token) {
         try {
-          const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/me`, {
+          const response = await axios.get('/api/auth/me', {
             headers: { Authorization: `Bearer ${token}` }
           });
           setUser(response.data);
@@ -48,7 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/api/auth/login`, {
+      const response = await axios.post('/api/auth/login', {
         email,
         password
       });
@@ -64,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/api/auth/register`, {
+      const response = await axios.post('/api/auth/register', {
         email,
         password
       });
@@ -85,7 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const googleLogin = () => {
-    window.location.href = `${process.env.REACT_APP_API_URL}/api/auth/google`;
+    window.location.href = '/api/auth/google';
   };
 
   return (

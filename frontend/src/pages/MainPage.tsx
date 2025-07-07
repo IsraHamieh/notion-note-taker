@@ -27,20 +27,13 @@ import {
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { styles } from './MainPage.styles';
+import { useTheme } from '@mui/material/styles';
 
 interface Source {
   id: string;
   type: 'link' | 'file' | 'youtube' | 'image';
   content: string;
   useImageContent?: boolean;
-}
-
-interface NotionTemplate {
-  id: string;
-  name: string;
-  description: string;
-  previewUrl: string;
-  thumbnailUrl: string;
 }
 
 interface FileSource {
@@ -56,13 +49,21 @@ interface ImageSource {
   useImageContent: boolean;
 }
 
+interface NotionSearchResult {
+  object: string;
+  id: string;
+  properties?: any;
+  cover?: any;
+  icon?: any;
+  url?: string;
+}
+
 const VALID_URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/;
 const ALLOWED_FILE_TYPES = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
-  'text/plain': ['.txt'],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx']
 };
 const ALLOWED_IMAGE_TYPES = {
   'image/png': ['.png'],
@@ -76,14 +77,15 @@ const MainPage: React.FC = () => {
   const [imageSources, setImageSources] = useState<ImageSource[]>([]);
   const [linkInput, setLinkInput] = useState('');
   const [enableWebSearch, setEnableWebSearch] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<NotionTemplate | null>(null);
-  const [templates, setTemplates] = useState<NotionTemplate[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [useImageContent, setUseImageContent] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [urlError, setUrlError] = useState<string>('');
   const [userPrompt, setUserPrompt] = useState('');
+  const [notionSearch, setNotionSearch] = useState('');
+  const [notionResults, setNotionResults] = useState<NotionSearchResult[]>([]);
+  const [selectedNotion, setSelectedNotion] = useState<NotionSearchResult | null>(null);
+  const [notionLoading, setNotionLoading] = useState(false);
+  const theme = useTheme();
 
   const { getRootProps, getInputProps } = useDropzone({
     onDrop: (acceptedFiles) => {
@@ -106,26 +108,31 @@ const MainPage: React.FC = () => {
     accept: ALLOWED_FILE_TYPES,
   });
 
+
+  // Notion search effect
   useEffect(() => {
-    const fetchTemplates = async () => {
-      if (searchQuery.length < 2) return;
-      
-      setLoading(true);
+    if (notionSearch.length < 2) return;
+    setNotionLoading(true);
+    const fetchNotionResults = async () => {
       try {
-        // Replace with your actual API endpoint
-        const response = await fetch(`/api/templates/search?q=${searchQuery}`);
+        const response = await fetch('/api/notion/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: notionSearch }),
+          credentials: 'include',
+        });
+        if (!response.ok) throw new Error('Failed to fetch Notion results');
         const data = await response.json();
-        setTemplates(data);
-      } catch (error) {
-        console.error('Error fetching templates:', error);
+        setNotionResults(data.results || []);
+      } catch (err) {
+        setNotionResults([]);
       } finally {
-        setLoading(false);
+        setNotionLoading(false);
       }
     };
-
-    const debounceTimer = setTimeout(fetchTemplates, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [searchQuery]);
+    const debounce = setTimeout(fetchNotionResults, 300);
+    return () => clearTimeout(debounce);
+  }, [notionSearch]);
 
   const validateUrl = (url: string): boolean => {
     if (!url) return false;
@@ -215,8 +222,14 @@ const MainPage: React.FC = () => {
       alert('Please enter a prompt.');
       return;
     }
+    if (!selectedNotion) {
+      alert('Please select a Notion page or database.');
+      return;
+    }
     const formData = new FormData();
     formData.append('user_query', userPrompt);
+    formData.append('notion_object', selectedNotion.object);
+    formData.append('notion_id', selectedNotion.id);
     formData.append('files', fileSources[0].file);
     formData.append('youtube_urls', JSON.stringify(sources.filter(source => source.type === 'youtube').map(source => source.content)));
     formData.append('use_image_content', useImageContent.toString());
@@ -265,322 +278,350 @@ const MainPage: React.FC = () => {
         Transform your sources into beautiful Notion notes
       </Typography>
 
-      <Stack spacing={4} sx={styles.mainContent}>
-        <Paper elevation={0} sx={styles.sourcePaper}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h6">Add Source</Typography>
-            <InfoIcon color="action" fontSize="small" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Add URLs to use as reference in your Notion notes. You can add multiple sources to combine their content.
-          </Typography>
-          <Stack spacing={2}>
-            <Box sx={styles.sourceInputContainer}>
-              <TextField
-                fullWidth
-                variant="outlined"
-                placeholder="Enter URLs one by one"
-                value={linkInput}
-                onChange={(e) => {
-                  setLinkInput(e.target.value);
-                  setUrlError('');
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleAddLink();
-                  }
-                }}
-                error={!!urlError}
-                helperText={urlError}
-              />
-              <Button
-                variant="contained"
-                onClick={handleAddLink}
-                startIcon={<AddIcon />}
-              >
-                Add
-              </Button>
+      <form onSubmit={handleSubmit}>
+        <Stack spacing={4} sx={styles.mainContent}>
+          <Paper elevation={0} sx={styles.sourcePaper}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6">Add Source</Typography>
+              <InfoIcon color="action" fontSize="small" />
             </Box>
-            {sources.length > 0 && (
-              <Box sx={styles.sourcesList}>
-                {sources.map((source) => (
-                  <Chip
-                    key={source.id}
-                    icon={getSourceIcon(source.type)}
-                    label={source.content}
-                    onDelete={() => handleRemoveSource(source.id)}
-                    sx={styles.chip}
-                  />
-                ))}
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Add URLs to use as reference in your Notion notes. You can add multiple sources to combine their content.
+            </Typography>
+            <Stack spacing={2}>
+              <Box sx={styles.sourceInputContainer}>
+                <TextField
+                  fullWidth
+                  variant="outlined"
+                  placeholder="Enter URLs one by one"
+                  value={linkInput}
+                  onChange={(e) => {
+                    setLinkInput(e.target.value);
+                    setUrlError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleAddLink();
+                    }
+                  }}
+                  error={!!urlError}
+                  helperText={urlError}
+                />
+                <Button
+                  variant="contained"
+                  onClick={handleAddLink}
+                  startIcon={<AddIcon />}
+                >
+                  Add
+                </Button>
+              </Box>
+              {sources.length > 0 && (
+                <Box sx={styles.sourcesList}>
+                  {sources.map((source) => (
+                    <Chip
+                      key={source.id}
+                      icon={getSourceIcon(source.type)}
+                      label={source.content}
+                      onDelete={() => handleRemoveSource(source.id)}
+                      sx={styles.chip}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Stack>
+          </Paper>
+
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6">File Upload</Typography>
+              <InfoIcon color="action" fontSize="small" />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Upload files to include their content in your Notion notes. Supported formats: PDF, DOCX, XLSX, and PPTX.
+            </Typography>
+            <Paper 
+              elevation={0} 
+              sx={{
+                ...styles.dropzonePaper,
+                cursor: 'pointer',
+                '&:hover': {
+                  borderColor: 'primary.main',
+                },
+              }} 
+              {...getRootProps()}
+            >
+              <input {...getInputProps()} />
+              <Box sx={styles.dropzoneContent}>
+                <AddIcon sx={styles.addIcon} />
+                <Typography variant="h6">Drop files here</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  or click to select files
+                </Typography>
+              </Box>
+            </Paper>
+            {fileSources.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Uploaded Files:
+                </Typography>
+                <Stack spacing={1}>
+                  {fileSources.map((fileSource) => (
+                    <Paper
+                      key={fileSource.id}
+                      elevation={0}
+                      sx={{
+                        p: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        bgcolor: 'background.default',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <DescriptionIcon color="action" />
+                        <Typography variant="body2" noWrap>
+                          {fileSource.file.name}
+                        </Typography>
+                      </Box>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRemoveFile(fileSource.id)}
+                        sx={{
+                          color: 'text.secondary',
+                          '&:hover': {
+                            color: 'error.main',
+                          },
+                        }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Paper>
+                  ))}
+                </Stack>
               </Box>
             )}
-          </Stack>
-        </Paper>
-
-        <Paper elevation={0} sx={styles.sectionPaper}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h6">File Upload</Typography>
-            <InfoIcon color="action" fontSize="small" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Upload files to include their content in your Notion notes. Supported formats: PDF, DOCX, XLSX, PPTX, TXT.
-          </Typography>
-          <Paper 
-            elevation={0} 
-            sx={{
-              ...styles.dropzonePaper,
-              cursor: 'pointer',
-              '&:hover': {
-                borderColor: 'primary.main',
-              },
-            }} 
-            {...getRootProps()}
-          >
-            <input {...getInputProps()} />
-            <Box sx={styles.dropzoneContent}>
-              <AddIcon sx={styles.addIcon} />
-              <Typography variant="h6">Drop files here</Typography>
-              <Typography variant="body2" color="text.secondary">
-                or click to select files
-              </Typography>
-            </Box>
           </Paper>
-          {fileSources.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Uploaded Files:
-              </Typography>
-              <Stack spacing={1}>
-                {fileSources.map((fileSource) => (
-                  <Paper
-                    key={fileSource.id}
-                    elevation={0}
+
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6">Image Upload</Typography>
+              <InfoIcon color="action" fontSize="small" />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Upload images to include in your Notion notes. Supported formats: PNG, JPG, JPEG.
+            </Typography>
+            <Box sx={styles.imageUploadContainer}>
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<ImageIcon />}
+                sx={{ cursor: 'pointer' }}
+              >
+                Upload Images
+                <input
+                  type="file"
+                  hidden
+                  multiple
+                  accept=".png,.jpg,.jpeg"
+                  onChange={handleImageUpload}
+                />
+              </Button>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={useImageContent}
+                    onChange={handleImageContentToggle}
+                  />
+                }
+                label="Extract and Use Image Content"
+              />
+            </Box>
+            {imageSources.length > 0 && (
+              <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                {imageSources.map((image, index) => (
+                  <Box
+                    key={image.id}
                     sx={{
-                      p: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      bgcolor: 'background.default',
-                      border: '1px solid',
-                      borderColor: 'divider',
+                      position: 'relative',
+                      width: 100,
+                      height: 100,
                       borderRadius: 1,
+                      overflow: 'hidden',
+                      boxShadow: 2,
+                      transform: `translateY(${index * -10}px)`,
+                      transition: 'transform 0.2s ease-in-out',
+                      '&:hover': {
+                        transform: `translateY(${index * -10}px) scale(1.05)`,
+                        zIndex: 1,
+                      },
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <DescriptionIcon color="action" />
-                      <Typography variant="body2" noWrap>
-                        {fileSource.file.name}
-                      </Typography>
-                    </Box>
+                    <img
+                      src={image.preview}
+                      alt={`Uploaded ${index + 1}`}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                    />
                     <IconButton
                       size="small"
-                      onClick={() => handleRemoveFile(fileSource.id)}
+                      onClick={() => handleRemoveImage(image.id)}
                       sx={{
-                        color: 'text.secondary',
+                        position: 'absolute',
+                        top: 4,
+                        right: 4,
+                        bgcolor: 'rgba(0, 0, 0, 0.5)',
+                        color: 'white',
                         '&:hover': {
-                          color: 'error.main',
+                          bgcolor: 'rgba(0, 0, 0, 0.7)',
                         },
                       }}
                     >
                       <CloseIcon fontSize="small" />
                     </IconButton>
-                  </Paper>
+                  </Box>
                 ))}
-              </Stack>
-            </Box>
-          )}
-        </Paper>
+              </Box>
+            )}
+          </Paper>
 
-        <Paper elevation={0} sx={styles.sectionPaper}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h6">Image Upload</Typography>
-            <InfoIcon color="action" fontSize="small" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Upload images to include in your Notion notes. Supported formats: PNG, JPG, JPEG.
-          </Typography>
-          <Box sx={styles.imageUploadContainer}>
-            <Button
-              variant="outlined"
-              component="label"
-              startIcon={<ImageIcon />}
-              sx={{ cursor: 'pointer' }}
-            >
-              Upload Images
-              <input
-                type="file"
-                hidden
-                multiple
-                accept=".png,.jpg,.jpeg"
-                onChange={handleImageUpload}
-              />
-            </Button>
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6">Web Search</Typography>
+              <InfoIcon color="action" fontSize="small" />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Enable web search to automatically find and include relevant content from the internet based on your sources.
+            </Typography>
             <FormControlLabel
               control={
                 <Switch
-                  checked={useImageContent}
-                  onChange={handleImageContentToggle}
+                  checked={enableWebSearch}
+                  onChange={(e) => setEnableWebSearch(e.target.checked)}
                 />
               }
-              label="Extract and Use Image Content"
+              label="Enable Web Search"
             />
-          </Box>
-          {imageSources.length > 0 && (
-            <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-              {imageSources.map((image, index) => (
-                <Box
-                  key={image.id}
-                  sx={{
-                    position: 'relative',
-                    width: 100,
-                    height: 100,
-                    borderRadius: 1,
-                    overflow: 'hidden',
-                    boxShadow: 2,
-                    transform: `translateY(${index * -10}px)`,
-                    transition: 'transform 0.2s ease-in-out',
-                    '&:hover': {
-                      transform: `translateY(${index * -10}px) scale(1.05)`,
-                      zIndex: 1,
-                    },
+          </Paper>
+
+          {/* --- User Prompt Input --- */}
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Typography variant="h6" mb={2}>Describe how you want your content to be used to generate notes <span style={{ color: theme.palette.error.main }}>*</span></Typography>
+            <TextField
+              required
+              fullWidth
+              multiline
+              minRows={2}
+              placeholder="e.g. Summarize these sources into a study guide, highlight key points, etc."
+              value={userPrompt}
+              onChange={e => setUserPrompt(e.target.value)}
+            />
+          </Paper>
+
+          {/* --- Notion Search Autocomplete --- */}
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Typography variant="h6" mb={2}>Select a Notion page or database <span style={{ color: theme.palette.error.main }}>*</span></Typography>
+            <Autocomplete
+              options={notionResults}
+              getOptionLabel={option => {
+                // Try to get the title from properties.Name or properties.title
+                const titleProp = option.properties?.Name || option.properties?.title;
+                if (titleProp && Array.isArray(titleProp.title)) {
+                  return titleProp.title.map((t: any) => t.plain_text).join(' ');
+                }
+                if (titleProp && Array.isArray(titleProp)) {
+                  return titleProp.map((t: any) => t.plain_text).join(' ');
+                }
+                return option.id;
+              }}
+              filterOptions={x => x} // Don't filter client-side
+              loading={notionLoading}
+              value={selectedNotion}
+              onChange={(_, value) => setSelectedNotion(value)}
+              onInputChange={(_, value) => setNotionSearch(value)}
+              isOptionEqualToValue={(opt, val) => opt.id === val.id}
+              renderOption={(props, option) => {
+                const titleProp = option.properties?.Name || option.properties?.title;
+                let title = option.id;
+                if (titleProp && Array.isArray(titleProp.title)) {
+                  title = titleProp.title.map((t: any) => t.plain_text).join(' ');
+                }
+                if (titleProp && Array.isArray(titleProp)) {
+                  title = titleProp.map((t: any) => t.plain_text).join(' ');
+                }
+                return (
+                  <Box component="li" {...props} display="flex" alignItems="center" gap={2}>
+                    {option.cover?.external?.url && (
+                      <img src={option.cover.external.url} alt="cover" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+                    )}
+                    <Typography>{title}</Typography>
+                    <Typography variant="caption" color="text.secondary" ml={1}>
+                      ({option.object})
+                    </Typography>
+                  </Box>
+                );
+              }}
+              renderInput={params => (
+                <TextField
+                  {...params}
+                  label="Search Notion pages/databases"
+                  required
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {notionLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
                   }}
-                >
-                  <img
-                    src={image.preview}
-                    alt={`Uploaded ${index + 1}`}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                    }}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={() => handleRemoveImage(image.id)}
-                    sx={{
-                      position: 'absolute',
-                      top: 4,
-                      right: 4,
-                      bgcolor: 'rgba(0, 0, 0, 0.5)',
-                      color: 'white',
-                      '&:hover': {
-                        bgcolor: 'rgba(0, 0, 0, 0.7)',
-                      },
-                    }}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Paper>
+                />
+              )}
+            />
+          </Paper>
 
-        <Paper elevation={0} sx={styles.sectionPaper}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h6">Web Search</Typography>
-            <InfoIcon color="action" fontSize="small" />
+          {/* --- Terms and Conditions --- */}
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                />
+              }
+              label={
+                <Typography variant="body2">
+                  I agree to the{' '}
+                  <Link href="#" onClick={(e) => e.preventDefault()}>
+                    Terms and Conditions
+                  </Link>{' '}
+                  and{' '}
+                  <Link href="#" onClick={(e) => e.preventDefault()}>
+                    Privacy Policy
+                  </Link>
+                </Typography>
+              }
+            />
+          </Paper>
+
+          <Box sx={styles.generateButtonContainer}>
+            <Button
+              variant="contained"
+              size="large"
+              type="submit"
+              disabled={sources.length === 0 || !acceptedTerms}
+              sx={styles.generateButton}
+            >
+              Generate Notion Notes
+            </Button>
           </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Enable web search to automatically find and include relevant content from the internet based on your sources.
-          </Typography>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={enableWebSearch}
-                onChange={(e) => setEnableWebSearch(e.target.checked)}
-              />
-            }
-            label="Enable Web Search"
-          />
-        </Paper>
-
-        <Paper elevation={0} sx={styles.sectionPaper}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h6">Select Notion Template</Typography>
-            <InfoIcon color="action" fontSize="small" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Choose a template to structure your Notion notes. Templates help organize your content in a consistent and visually appealing way.
-          </Typography>
-          <Autocomplete
-            options={templates}
-            getOptionLabel={(option) => option.name}
-            loading={loading}
-            value={selectedTemplate}
-            onChange={(_, newValue) => setSelectedTemplate(newValue)}
-            onInputChange={(_, newInputValue) => setSearchQuery(newInputValue)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Search templates"
-                InputProps={{
-                  ...params.InputProps,
-                  endAdornment: (
-                    <>
-                      {loading ? <CircularProgress color="inherit" size={20} /> : null}
-                      {params.InputProps.endAdornment}
-                    </>
-                  ),
-                }}
-              />
-            )}
-            renderOption={(props, option) => (
-              <Box component="li" {...props}>
-                <Box>
-                  <Typography variant="subtitle1">{option.name}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {option.description}
-                  </Typography>
-                </Box>
-              </Box>
-            )}
-          />
-          {selectedTemplate && (
-            <Box sx={styles.templatePreview}>
-              <img
-                src={selectedTemplate.thumbnailUrl}
-                alt={selectedTemplate.name}
-                style={{ maxWidth: '100%', borderRadius: '8px' }}
-              />
-            </Box>
-          )}
-        </Paper>
-
-        <Paper elevation={0} sx={styles.sectionPaper}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-              />
-            }
-            label={
-              <Typography variant="body2">
-                I agree to the{' '}
-                <Link href="#" onClick={(e) => e.preventDefault()}>
-                  Terms and Conditions
-                </Link>{' '}
-                and{' '}
-                <Link href="#" onClick={(e) => e.preventDefault()}>
-                  Privacy Policy
-                </Link>
-              </Typography>
-            }
-          />
-        </Paper>
-
-        <Box sx={styles.generateButtonContainer}>
-          <Button
-            variant="contained"
-            size="large"
-            disabled={sources.length === 0 || !acceptedTerms}
-            sx={styles.generateButton}
-          >
-            Generate Notion Notes
-          </Button>
-        </Box>
-      </Stack>
+        </Stack>
+      </form>
     </Container>
   );
 };

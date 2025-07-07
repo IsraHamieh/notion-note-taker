@@ -1,41 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { User } from '../models/User';
 
-interface JwtPayload {
-  id: string;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+export interface AuthRequest extends Request {
+  userId?: string;
 }
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any;
-    }
+export function authenticateJWT(req: AuthRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
   }
-}
-
-export const protect = async (req: Request, res: Response, next: NextFunction) => {
+  const token = authHeader.split(' ')[1];
   try {
-    let token;
-
-    if (req.headers.authorization?.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
-
-    if (!token) {
-      return res.status(401).json({ message: 'Not authorized to access this route' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
-
-    req.user = user;
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    req.userId = decoded.userId;
     next();
-  } catch (error) {
-    return res.status(401).json({ message: 'Not authorized to access this route' });
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
   }
-}; 
+} 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import KeysPage from './pages/KeysPage';
 import ChatsPage from './pages/ChatsPage';
 import ChatViewPage from './pages/ChatViewPage';
@@ -11,6 +11,17 @@ import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import reportWebVitals from './reportWebVitals';
 import { ThemeProvider } from './context/ThemeContext';
+import Login from './components/Login';
+import Register from './components/Register';
+import { AuthProvider } from './contexts/AuthContext';
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -44,6 +55,14 @@ function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function LoginPage() {
+  return <Login />;
+}
+
+function RegisterPage() {
+  return <Register />;
+}
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
@@ -51,22 +70,44 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <ThemeProvider>
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<MainPage />} />
-            <Route path="/keys" element={<KeysPage />} />
-            <Route path="/chats" element={<ChatsPage />} />
-            <Route path="/chats/:chat_id" element={<ChatViewPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-          </Routes>
-        </Layout>
-      </Router>
+      <AuthProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <MainPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedRoute>
+                    <ProfilePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/keys"
+                element={
+                  <ProtectedRoute>
+                    <KeysPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/chats" element={<ProtectedRoute><ChatsPage /></ProtectedRoute>} />
+              <Route path="/chats/:chat_id" element={<ProtectedRoute><ChatViewPage /></ProtectedRoute>} />
+            </Routes>
+          </Layout>
+        </Router>
+      </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();

@@ -1,61 +1,47 @@
-import mongoose, { Document, Schema } from 'mongoose';
-import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
+import crypto from 'crypto';
 
-export interface IUser extends Document {
-  email: string;
-  password?: string;
-  googleId?: string;
-  isVerified: boolean;
-  verificationToken?: string;
-  resetPasswordToken?: string;
-  resetPasswordExpires?: Date;
-  comparePassword(candidatePassword: string): Promise<boolean>;
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'a'.repeat(32); // 32 bytes for AES-256
+const IV_LENGTH = 16;
+
+function encrypt(text: string): string {
+  if (!text) return '';
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag();
+  return iv.toString('hex') + ':' + tag.toString('hex') + ':' + encrypted;
 }
 
-const userSchema = new Schema<IUser>({
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true,
-  },
-  password: {
-    type: String,
-    minlength: 6,
-  },
-  googleId: {
-    type: String,
-    sparse: true,
-  },
-  isVerified: {
-    type: Boolean,
-    default: false,
-  },
-  verificationToken: String,
-  resetPasswordToken: String,
-  resetPasswordExpires: Date,
-}, {
-  timestamps: true,
+function decrypt(text: string): string {
+  if (!text) return '';
+  const [ivHex, tagHex, encrypted] = text.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(ENCRYPTION_KEY), iv);
+  decipher.setAuthTag(tag);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+  anthropicKey: { type: String, get: decrypt, set: encrypt },
+  notionKey: { type: String, get: decrypt, set: encrypt },
+  llamaKey: { type: String, get: decrypt, set: encrypt },
+  tavilyKey: { type: String, get: decrypt, set: encrypt },
 });
 
-// Hash password before saving
-userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password!, salt);
-    next();
-  } catch (error: any) {
-    next(error);
-  }
-});
+// Ensure getters are used when converting to objects/JSON
+userSchema.set('toObject', { getters: true });
+userSchema.set('toJSON', { getters: true });
 
-// Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword: string): Promise<boolean> {
-  if (!this.password) return false;
-  return bcrypt.compare(candidatePassword, this.password);
-};
+export const User = mongoose.model('User', userSchema);
 
-export const User = mongoose.model<IUser>('User', userSchema); 
+export async function getUserNotionKey(userId: string) {
+  const user = await User.findById(userId);
+  return user?.notionKey;
+} 
