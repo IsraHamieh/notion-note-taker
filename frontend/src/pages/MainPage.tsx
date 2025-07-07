@@ -115,9 +115,13 @@ const MainPage: React.FC = () => {
     setNotionLoading(true);
     const fetchNotionResults = async () => {
       try {
+        const token = localStorage.getItem('token');
         const response = await fetch('/api/notion/search', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
           body: JSON.stringify({ query: notionSearch }),
           credentials: 'include',
         });
@@ -546,6 +550,8 @@ const MainPage: React.FC = () => {
               onInputChange={(_, value) => setNotionSearch(value)}
               isOptionEqualToValue={(opt, val) => opt.id === val.id}
               renderOption={(props, option) => {
+                // Remove key from props and pass it directly
+                const { key, ...restProps } = props;
                 const titleProp = option.properties?.Name || option.properties?.title;
                 let title = option.id;
                 if (titleProp && Array.isArray(titleProp.title)) {
@@ -555,7 +561,7 @@ const MainPage: React.FC = () => {
                   title = titleProp.map((t: any) => t.plain_text).join(' ');
                 }
                 return (
-                  <Box component="li" {...props} display="flex" alignItems="center" gap={2}>
+                  <Box component="li" key={option.id} {...restProps} display="flex" alignItems="center" gap={2}>
                     {option.cover?.external?.url && (
                       <img src={option.cover.external.url} alt="cover" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
                     )}

@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
+import chatsRoutes from './routes/chats';
+import notionRoutes from './routes/notion';
+import processRoutes from './routes/process';
 
 dotenv.config();
 
@@ -17,6 +20,9 @@ app.use(cors({
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/chats', chatsRoutes);
+app.use('/api/notion', notionRoutes);
+app.use('/api/process', processRoutes);
 
 // Connect to MongoDB
 const mongoUri = process.env.MONGO_URI;

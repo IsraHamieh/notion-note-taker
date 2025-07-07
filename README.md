@@ -1,92 +1,161 @@
-# Notion Agent with Authentication
+# Notion Agent
 
-This project includes both frontend and backend components with email and Google authentication.
+Notion Agent is a full-stack application for transforming files, web content, and YouTube videos into structured Notion pages using AI. It features a modern React frontend, a Node.js/Express backend for authentication and Notion API proxying, and a Python/FastAPI backend for AI-powered content processing.
 
-## Backend Setup
+---
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+## Features
+- **Modern React Frontend**: Clean UI for uploading files, searching Notion, and managing API keys.
+- **Authentication**: Secure JWT-based email/password authentication.
+- **API Key Management**: Store and encrypt Notion and AI provider keys per user.
+- **Notion Integration**: Search and select Notion pages/databases, and send content directly to Notion.
+- **Multi-Agent AI Processing**: Python backend orchestrates file parsing, web search, math, diagrams, and more.
+- **File & YouTube Support**: Upload PDFs, DOCX, PPTX, XLSX, images, and YouTube links.
+- **Chat History**: Save and view previous AI-generated Notion content.
+- **Security**: All sensitive data is encrypted; CORS and environment variable protection.
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+---
 
-3. Create a `.env` file in the backend directory with the following variables:
-   ```
-   PORT=5000
-   NODE_ENV=development
-   MONGODB_URI=mongodb://localhost:27017/notion-agent
-   JWT_SECRET=your_jwt_secret_key
-   JWT_EXPIRES_IN=7d
-   GOOGLE_CLIENT_ID=your_google_client_id
-   GOOGLE_CLIENT_SECRET=your_google_client_secret
-   GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USER=your_email@gmail.com
-   SMTP_PASS=your_app_specific_password
-   EMAIL_FROM=your_email@gmail.com
-   FRONTEND_URL=http://localhost:3000
-   ```
+## Required Libraries
 
-4. Start the backend server:
-   ```bash
-   npm run dev
-   ```
+### Backend (Node.js/TypeScript)
+- @notionhq/client
+- axios
+- bcryptjs
+- cors
+- dotenv
+- express
+- jsonwebtoken
+- mongoose
+- nodemailer
+- passport
+- passport-jwt
+- nodemon (dev)
+- ts-node (dev)
+- typescript (dev)
 
-## Frontend Setup
+### Backend (Python/FastAPI)
+- ray
+- langgraph
+- langchain
+- langchain-anthropic
+- langchain-tavily
+- langchain_core
+- requests
+- llamaparse
+- pytube
+- Pillow
+- openpyxl
+- fastapi
+- uvicorn[standard]
+- python-multipart
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+### Frontend (React)
+- @emotion/react
+- @emotion/styled
+- @mui/icons-material
+- @mui/material
+- @testing-library/dom
+- @testing-library/jest-dom
+- @testing-library/react
+- @testing-library/user-event
+- @types/jest
+- @types/node
+- @types/react
+- @types/react-dom
+- axios
+- react
+- react-dom
+- react-dropzone
+- react-router-dom
+- react-scripts
+- typescript
+- web-vitals
+- tailwindcss
+- postcss
+- autoprefixer
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+---
 
-3. Create a `.env` file in the frontend directory:
-   ```
-   REACT_APP_API_URL=http://localhost:5000
-   ```
+## Setup Guide
 
-4. Start the frontend development server:
-   ```bash
-   npm start
-   ```
+### 1. Backend (Node.js/TypeScript)
 
-## Google OAuth Setup
+```bash
+cd backend
+npm install
+```
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the Google+ API
-4. Go to Credentials
-5. Create an OAuth 2.0 Client ID
-6. Add authorized redirect URIs:
-   - http://localhost:5000/api/auth/google/callback (for development)
-7. Copy the Client ID and Client Secret to your backend `.env` file
+Create a `.env` file in the backend directory:
+```
+PORT=5000
+NODE_ENV=development
+MONGO_URI=mongodb-connection-uri
+JWT_SECRET=your_jwt_secret_key
+ENCRYPTION_KEY=your-256-bit-encryption-key
+FRONTEND_URL=http://localhost:3000
+```
 
-## Email Setup
+Start the backend server:
+```bash
+npm run dev
+```
 
-For Gmail:
-1. Enable 2-factor authentication
-2. Generate an App Password
-3. Use the App Password in your SMTP_PASS environment variable
+### 2. Backend (Python/FastAPI)
 
-## Security Features
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-- Password hashing using bcrypt
-- JWT-based authentication
-- Email verification
-- Google OAuth integration
-- Protected routes
-- CORS configuration
-- Environment variable protection
-- Rate limiting (implemented in backend)
-- Secure password reset flow
-- XSS protection
-- CSRF protection
+Set up any required environment variables (see backend/README.md for details if needed).
+
+Start the Python backend:
+```bash
+python app.py
+# or for development
+uvicorn app:app --reload --host 0.0.0.0 --port 5000
+```
+
+### 3. Frontend (React)
+
+```bash
+cd frontend
+npm install
+```
+
+Create a `.env` file in the frontend directory (optional, for direct API calls):
+```
+REACT_APP_API_URL=http://localhost:5000
+```
+
+Start the frontend dev server:
+```bash
+npm start
+```
+
+---
+
+## Architecture
+
+```
+[React Frontend] → [Node.js/Express Auth/API Proxy] → [Python FastAPI AI Backend]
+```
+- **Frontend**: User interface, authentication, file upload, Notion search, chat history
+- **Node.js Backend**: Auth, user & key management, Notion API proxy, MongoDB
+- **Python Backend**: AI processing, file parsing, web search, agent orchestration
+
+---
+
+## Security Notes
+- Passwords and API keys are encrypted in the database
+- JWT-based authentication for all protected routes
+- CORS configured for secure frontend-backend communication
+- Environment variables for all secrets and keys
+- Rate limiting and error handling on backend
+
+---
+
+## Project Description
+
+Notion Agent is designed to help users turn their files, web content, and YouTube videos into beautiful, structured Notion pages using the power of AI. It provides a seamless workflow from uploading and searching to AI-powered content generation and direct Notion integration, all with modern security and a great user experience.

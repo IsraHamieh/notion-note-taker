@@ -1,11 +1,11 @@
 import express from 'express';
-import fetch from 'node-fetch';
+import { Client } from '@notionhq/client';
 import { getUserNotionKey } from '../models/User';
-import { AuthRequest } from '../middleware/auth';
+import { authenticateJWT, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 
-router.post('/search', async (req: AuthRequest, res) => {
+router.post('/search', authenticateJWT, async (req: AuthRequest, res) => {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -13,17 +13,20 @@ router.post('/search', async (req: AuthRequest, res) => {
   if (!notionKey) return res.status(403).json({ error: 'No Notion integration key' });
 
   const { query } = req.body;
-  const notionRes = await fetch('https://api.notion.com/v1/search', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${notionKey}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ query }),
-  });
-  const data = await notionRes.json();
-  res.json(data);
+  const notion = new Client({ auth: notionKey });
+
+  try {
+    const response = await notion.search({
+      query,
+      sort: {
+        direction: 'ascending',
+        timestamp: 'last_edited_time'
+      },
+    });
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: 'Notion API error', details: err instanceof Error ? err.message : 'Unknown error' });
+  }
 });
 
 export default router; 
