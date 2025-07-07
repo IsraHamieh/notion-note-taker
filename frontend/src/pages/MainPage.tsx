@@ -83,6 +83,7 @@ const MainPage: React.FC = () => {
   const [useImageContent, setUseImageContent] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [urlError, setUrlError] = useState<string>('');
+  const [userPrompt, setUserPrompt] = useState('');
 
   const { getRootProps, getInputProps } = useDropzone({
     onDrop: (acceptedFiles) => {
@@ -208,8 +209,55 @@ const MainPage: React.FC = () => {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userPrompt.trim()) {
+      alert('Please enter a prompt.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('user_query', userPrompt);
+    formData.append('files', fileSources[0].file);
+    formData.append('youtube_urls', JSON.stringify(sources.filter(source => source.type === 'youtube').map(source => source.content)));
+    formData.append('use_image_content', useImageContent.toString());
+    formData.append('web_search_query', enableWebSearch ? 'web search' : '');
+    try {
+      const response = await fetch('/api/process', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      const result = await response.json();
+      if (result.success) {
+        // Save chat to backend
+        const chatPayload = {
+          prompt: userPrompt,
+          files: fileSources.map(f => ({ name: f.file.name })), // Add url if available
+          response: result.result,
+        };
+        try {
+          await fetch('/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(chatPayload),
+            credentials: 'include',
+          });
+          // Optionally show a toast or message
+        } catch (err) {
+          console.error('Error saving chat:', err);
+        }
+      }
+      // ... existing code for handling result ...
+    } catch (err) {
+      console.error('Error submitting form:', err);
+    }
+  };
+
   return (
-    <Container maxWidth="lg" sx={styles.container}>
+    <Container
+      maxWidth="lg"
+      sx={styles.container}
+    >
       <Typography variant="h3" component="h1" sx={styles.pageTitle}>
         Notion Agent
       </Typography>
@@ -374,7 +422,7 @@ const MainPage: React.FC = () => {
                   onChange={handleImageContentToggle}
                 />
               }
-              label="Use Image Content"
+              label="Extract and Use Image Content"
             />
           </Box>
           {imageSources.length > 0 && (

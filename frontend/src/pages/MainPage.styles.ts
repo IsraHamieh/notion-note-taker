@@ -1,9 +1,10 @@
+import { Margin } from '@mui/icons-material';
 import { alpha, Theme } from '@mui/material/styles';
 
 export const styles = {
   container: {
     py: 6,
-    minHeight: '100vh',
+    marginTop: '4rem',
     background: (theme: Theme) => theme.palette.background.default,
   },
   mainContent: {

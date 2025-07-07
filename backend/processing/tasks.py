@@ -10,14 +10,22 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 @ray.remote
-def process_files(file_path, file_type):
+def process_files(file_path, file_type, use_image_content=False):
     """
     Uses llamaparse to parse PDF, DOCX, XLSX, PPTX, and image files.
+    For images, only parses if use_image_content is True. Otherwise, returns the image path for direct use.
     """
     try:
-        # llamaparse handles most office and image files
-        result = parse_file(file_path)
-        return {"type": file_type, "content": result}
+        if file_type == 'image':
+            if use_image_content:
+                result = parse_file(file_path)
+                return {"type": file_type, "content": result, "parsed": True}
+            else:
+                # Just return the image path for direct use (e.g., upload to Notion)
+                return {"type": file_type, "image_path": file_path, "parsed": False}
+        else:
+            result = parse_file(file_path)
+            return {"type": file_type, "content": result}
     except Exception as e:
         return {"type": file_type, "error": str(e)}
 
@@ -39,3 +47,11 @@ def process_youtube_videos(youtube_urls):
         except Exception as e:
             results.append({"url": url, "error": str(e)})
     return results
+
+@ray.remote
+class TranscriptionWorker:
+    def transcribe(self, audio_path, user_id):
+        # TODO: Implement transcription logic
+        result = ""
+        # Store result in DB or return
+        return {"user_id": user_id, "transcription": result}
