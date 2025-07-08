@@ -1,31 +1,36 @@
 import ray
-from llamaparse import parse_file
+from llama_parse import LlamaParse
 from pytube import YouTube
 from PIL import Image
 import openpyxl
 import os
 
-# Google API imports (stubs for now)
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+
+# Initialize LlamaParse parser (API key set in env as LLAMA_CLOUD_API_KEY)
+parser = LlamaParse(
+    result_type="markdown",  # or "text"
+    num_workers=4,
+    verbose=True,
+    language="en"
+)
 
 @ray.remote
 def process_files(file_path, file_type, use_image_content=False):
     """
-    Uses llamaparse to parse PDF, DOCX, XLSX, PPTX, and image files.
+    Uses LlamaParse to parse PDF, DOCX, XLSX, PPTX, and image files.
     For images, only parses if use_image_content is True. Otherwise, returns the image path for direct use.
     """
     try:
         if file_type == 'image':
             if use_image_content:
-                result = parse_file(file_path)
-                return {"type": file_type, "content": result, "parsed": True}
+                documents = parser.load_data(file_path)
+                return {"type": file_type, "content": documents, "parsed": True}
             else:
                 # Just return the image path for direct use (e.g., upload to Notion)
                 return {"type": file_type, "image_path": file_path, "parsed": False}
         else:
-            result = parse_file(file_path)
-            return {"type": file_type, "content": result}
+            documents = parser.load_data(file_path)
+            return {"type": file_type, "content": documents}
     except Exception as e:
         return {"type": file_type, "error": str(e)}
 

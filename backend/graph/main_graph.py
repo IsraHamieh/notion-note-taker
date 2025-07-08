@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_anthropic import ChatAnthropic
-from state import AgentState
+from .state import AgentState
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from agents.web_search_agent import WebSearchAgent

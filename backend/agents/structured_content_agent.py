@@ -1,6 +1,6 @@
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool
-from prompts import STRUCTURED_CONTENT_AGENT_PROMPT
+from .prompts import STRUCTURED_CONTENT_AGENT_PROMPT
 
 class StructuredContentAgent:
     def __init__(self, model_name="anthropic:claude-3-haiku-20240307"):

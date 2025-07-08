@@ -5,10 +5,11 @@ langchain-anthropic
 langchain-tavily
 langchain_core
 requests
-llamaparse
+llama-parse
 pytube
 Pillow
 openpyxl
 fastapi
 uvicorn[standard]
 python-multipart 
+bs4

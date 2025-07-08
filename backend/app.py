@@ -9,15 +9,6 @@ from graph.main_graph import langgraph_app
 import tempfile
 from typing import List, Optional
 import uvicorn
-import boto3
-from botocore.exceptions import ClientError
-from cryptography.fernet import Fernet
-import base64
-from uuid import uuid4
-from datetime import datetime
-# LangSmith (LangChain tracing) integration
-from langchain.callbacks.tracers.langchain import LangChainTracerV2
-from langchain.callbacks.tracers.run_collector import RunCollectorCallbackHandler
 
 # Initialize Ray
 ray.init(ignore_reinit_error=True)
@@ -42,27 +33,6 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# DynamoDB setup
-DYNAMODB_TABLE = os.environ.get('DYNAMODB_KEYS_TABLE', 'notion_agent_user_keys')
-dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-keys_table = dynamodb.Table(DYNAMODB_TABLE)
-
-# Encryption setup (for demo, use Fernet; in prod, use AWS KMS)
-FERNET_KEY = os.environ.get('FERNET_KEY') or Fernet.generate_key().decode()
-fernet = Fernet(FERNET_KEY.encode())
-
-def encrypt_value(value: str) -> str:
-    return fernet.encrypt(value.encode()).decode()
-
-def decrypt_value(value: str) -> str:
-    return fernet.decrypt(value.encode()).decode()
-
-# TODO Dummy JWT auth dependency (replace with real auth)
-def get_current_user_id(request: Request) -> str:
-    # In production, extract user_id from JWT in request.headers['Authorization']
-    # Here, use a placeholder for demo
-    return request.headers.get('X-User-Id', 'demo-user')
-
 def allowed_file(filename):
     """Check if file extension is allowed."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -83,17 +53,8 @@ def get_file_type(filename):
     else:
         return 'unknown'
 
-# DynamoDB chat table setup
-DYNAMODB_CHAT_TABLE = os.environ.get('DYNAMODB_CHAT_TABLE', 'notion_agent_chats')
-chat_table = dynamodb.Table(DYNAMODB_CHAT_TABLE)
 
-# Set up LangSmith tracing if enabled
-LANGCHAIN_TRACING_V2 = os.environ.get('LANGCHAIN_TRACING_V2', 'false').lower() == 'true'
 LANGCHAIN_API_KEY = os.environ.get('LANGCHAIN_API_KEY')
-tracer = None
-if LANGCHAIN_TRACING_V2 and LANGCHAIN_API_KEY:
-    tracer = LangChainTracerV2(api_url=os.environ.get('LANGCHAIN_ENDPOINT', 'https://api.smith.langchain.com'),
-                               api_key=LANGCHAIN_API_KEY)
 
 class NotionAgentApp:
     """
@@ -226,12 +187,10 @@ class NotionAgentApp:
                 full_input = f"Context from uploaded files:\n{context}\n\nUser Request: {user_query}"
             else:
                 full_input = user_query
-            # Add LangSmith tracing if enabled
-            callbacks = [tracer] if tracer else None
-            # Run the LangGraph workflow with tracing
+            # Run the LangGraph workflow 
             result = self.langgraph_app.invoke({
                 "user_input": full_input
-            }, callbacks=callbacks)
+            })
             return {
                 "success": True,
                 "result": result.get("final_output", "No output generated"),
@@ -250,47 +209,43 @@ notion_app = NotionAgentApp()
 @app.post("/api/process")
 async def process_and_generate(
     user_query: str = Form(...),
-    web_search_query: Optional[str] = Form(""),
-    use_image_content: bool = Form(False),
-    youtube_urls: str = Form("[]"),
-    files: List[UploadFile] = File([])
+    notion_object: str = Form(...),
+    notion_id: str = Form(...),
+    sources: str = Form("[]"),
+    web_search_queries: str = Form("[]"),
+    use_image_content: str = Form("false"),
+    files: List[UploadFile] = File([]),
+    images: List[UploadFile] = File([])
 ):
-    """
-    Main endpoint for processing files and generating Notion content.
-    
-    Args:
-        user_query: The user's request for the Notion page
-        web_search_query: Additional web search query (optional)
-        use_image_content: Whether to extract text from images
-        youtube_urls: JSON array of YouTube URLs
-        files: List of uploaded files
-    """
+    print("[app.py] /api/process called")
     try:
-        # Parse JSON strings
-        youtube_urls_list = json.loads(youtube_urls)
-        
+        sources_list = json.loads(sources)
+        web_search_queries_list = json.loads(web_search_queries)
+        use_image_content_bool = use_image_content.lower() == "true"
+        youtube_urls_list = [s['content'] for s in sources_list if s.get('type') == 'youtube']
         print(f"Processing request: {user_query}")
-        print(f"Files: {len(files)}")
-        print(f"YouTube URLs: {len(youtube_urls_list)}")
-        print(f"Use image content: {use_image_content}")
-        
-        # Process files
-        file_results = notion_app.process_uploaded_files(files, use_image_content)
+        print(f"Notion object: {notion_object}, Notion id: {notion_id}")
+        print(f"Sources: {sources_list}")
+        print(f"Web search queries: {web_search_queries_list}")
+        print(f"Files: {len(files)}, Images: {len(images)}")
+        print(f"YouTube URLs: {youtube_urls_list}")
+        print(f"Use image content: {use_image_content_bool}")
+        all_files = files + images
+        file_results = notion_app.process_uploaded_files(all_files, use_image_content_bool)
         print(f"File processing completed: {len(file_results)} results")
-        
-        # Process YouTube URLs
+        # Check for file processing errors
+        file_errors = [f for f in file_results if isinstance(f, dict) and f.get('error')]
+        if file_errors:
+            print(f"File processing errors: {file_errors}")
+            raise HTTPException(status_code=400, detail="One or more files could not be processed. Please check your files and try again.")
         youtube_results = notion_app.process_youtube_urls(youtube_urls_list)
         print(f"YouTube processing completed: {len(youtube_results)} results")
-        
-        # Aggregate content
+        web_search_context = '\n'.join(web_search_queries_list) if web_search_queries_list else None
         aggregated_content = notion_app.aggregate_content(
-            file_results, youtube_results, web_search_query
+            file_results, youtube_results, web_search_context
         )
         print(f"Aggregated content length: {len(aggregated_content)}")
-        
-        # Run LangGraph workflow
         langgraph_result = notion_app.run_langgraph_workflow(user_query, aggregated_content)
-        
         if langgraph_result["success"]:
             return {
                 "success": True,
@@ -300,11 +255,18 @@ async def process_and_generate(
                 "content_preview": aggregated_content[:500] + "..." if len(aggregated_content) > 500 else aggregated_content
             }
         else:
-            raise HTTPException(status_code=500, detail=langgraph_result["error"])
-            
+            # Check for overloaded or external API errors
+            error_msg = str(langgraph_result["error"])
+            print(f"LangGraph error: {error_msg}")
+            if 'overloaded' in error_msg.lower():
+                raise HTTPException(status_code=503, detail="The AI service is currently overloaded. Please try again in a few minutes.")
+            raise HTTPException(status_code=500, detail="An error occurred while generating your notes. Please try again later.")
+    except HTTPException as e:
+        # Already user-friendly
+        raise e
     except Exception as e:
         print(f"Error in process_and_generate: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again later.")
 
 @app.get("/api/health")
 async def health_check():
@@ -347,90 +309,5 @@ async def upload_files(files: List[UploadFile] = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/keys")
-async def save_api_keys(keys: dict, user_id: str = Depends(get_current_user_id)):
-    """
-    Save API/integration keys for the authenticated user. Keys are encrypted at rest.
-    Do NOT return keys in the response.
-    """
-    try:
-        encrypted_keys = {k: encrypt_value(v) for k, v in keys.items() if v}
-        keys_table.put_item(
-            Item={
-                'user_id': user_id,
-                'keys': encrypted_keys
-            }
-        )
-        return {"success": True, "message": "Keys saved securely."}
-    except ClientError as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/api/keys")
-async def get_api_keys(user_id: str = Depends(get_current_user_id)):
-    """
-    Retrieve API keys for backend use only (not exposed to frontend after save).
-    """
-    try:
-        resp = keys_table.get_item(Key={'user_id': user_id})
-        if 'Item' not in resp:
-            return {"keys": {}}
-        encrypted_keys = resp['Item'].get('keys', {})
-        decrypted_keys = {k: decrypt_value(v) for k, v in encrypted_keys.items()}
-        return {"keys": decrypted_keys}
-    except ClientError as e:
-        return {"error": str(e)}
-
-@app.post("/api/chats")
-async def save_chat(
-    chat: dict,  # expects {prompt, files, response}
-    user_id: str = Depends(get_current_user_id)
-):
-    """
-    Save a chat (prompt, files metadata, response, timestamp) for the authenticated user.
-    """
-    try:
-        chat_id = str(uuid4())
-        item = {
-            'chat_id': chat_id,
-            'user_id': user_id,
-            'prompt': chat.get('prompt', ''),
-            'files': chat.get('files', []),  # list of file metadata/links
-            'response': chat.get('response', ''),
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        chat_table.put_item(Item=item)
-        return {"success": True, "chat_id": chat_id}
-    except ClientError as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/api/chats")
-async def list_chats(user_id: str = Depends(get_current_user_id)):
-    """
-    List all chats for the authenticated user (metadata only).
-    """
-    try:
-        resp = chat_table.query(
-            IndexName='user_id-timestamp-index',
-            KeyConditionExpression='user_id = :uid',
-            ExpressionAttributeValues={':uid': user_id},
-            ProjectionExpression='chat_id, prompt, timestamp'
-        )
-        return {"chats": resp.get('Items', [])}
-    except ClientError as e:
-        return {"error": str(e)}
-
-@app.get("/api/chats/{chat_id}")
-async def get_chat(chat_id: str, user_id: str = Depends(get_current_user_id)):
-    """
-    Get a full chat (prompt, files, response) by chat_id for the authenticated user.
-    """
-    try:
-        resp = chat_table.get_item(Key={'chat_id': chat_id, 'user_id': user_id})
-        if 'Item' not in resp:
-            return {"error": "Chat not found"}
-        return resp['Item']
-    except ClientError as e:
-        return {"error": str(e)}
-
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5000) 
+    uvicorn.run(app, host="0.0.0.0", port=5001) 

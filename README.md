@@ -136,6 +136,53 @@ npm start
 
 ---
 
+## Backend: Dockerized Multi-Container Setup
+
+### 1. Configure Environment Variables
+
+- Copy the provided `.env` sample and fill in your secrets:
+  ```sh
+  cp backend/.env backend/.env.local
+  # Edit backend/.env.local and set your values
+  ```
+- **Do NOT commit your .env file to git.**
+
+### 2. Build and Run Both Backends with Docker Compose
+
+From the `backend` directory:
+```sh
+docker-compose up --build
+```
+- This will build and start:
+  - Node.js backend (Express) on [http://localhost:5000](http://localhost:5000)
+  - Python FastAPI backend on [http://localhost:5001](http://localhost:5001)
+
+Both services will use environment variables from `.env`.
+
+### 3. Stopping the Services
+
+Press `Ctrl+C` to stop, or run:
+```sh
+docker-compose down
+```
+
+### 4. Environment Variables Reference
+
+- `FRONTEND_URL` — URL of your frontend (for CORS)
+- `MONGO_URI` — MongoDB connection string
+- `AWS_REGION` — AWS region for DynamoDB/S3
+- `JWT_SECRET` — JWT secret for Node.js backend
+
+---
+
+## Local Development (without Docker)
+
+You can still run each backend manually if you prefer:
+- Python: `uvicorn app:app --host 0.0.0.0 --port 5001`
+- Node.js: `npm run start:node`
+
+---
+
 ## Architecture
 
 ```

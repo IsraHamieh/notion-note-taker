@@ -4,9 +4,9 @@
   "description": "Backend for Notion Agent with authentication",
   "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node src/index.ts",
-    "dev": "nodemon src/index.ts",
-    "build": "tsc"
+    "start:node": "ts-node src/index.ts",
+    "start:python": "uvicorn app:app --host 0.0.0.0 --port 5001",
+    "start:all": "npm run start:node & npm run start:python"
   },
   "dependencies": {
     "@notionhq/client": "^4.0.0",

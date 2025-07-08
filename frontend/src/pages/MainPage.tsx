@@ -58,7 +58,7 @@ interface NotionSearchResult {
   url?: string;
 }
 
-const VALID_URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/;
+const VALID_URL_PATTERN = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w.~:?#[\]@!$&'()*+,;=%-]*)*\/?$/i;
 const ALLOWED_FILE_TYPES = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
@@ -72,11 +72,11 @@ const ALLOWED_IMAGE_TYPES = {
 };
 
 const MainPage: React.FC = () => {
+  console.log('MainPage rendered');
   const [sources, setSources] = useState<Source[]>([]);
   const [fileSources, setFileSources] = useState<FileSource[]>([]);
   const [imageSources, setImageSources] = useState<ImageSource[]>([]);
   const [linkInput, setLinkInput] = useState('');
-  const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [useImageContent, setUseImageContent] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [urlError, setUrlError] = useState<string>('');
@@ -85,6 +85,9 @@ const MainPage: React.FC = () => {
   const [notionResults, setNotionResults] = useState<NotionSearchResult[]>([]);
   const [selectedNotion, setSelectedNotion] = useState<NotionSearchResult | null>(null);
   const [notionLoading, setNotionLoading] = useState(false);
+  const [webSearchInput, setWebSearchInput] = useState('');
+  const [webSearchQueries, setWebSearchQueries] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const theme = useTheme();
 
   const { getRootProps, getInputProps } = useDropzone({
@@ -220,36 +223,58 @@ const MainPage: React.FC = () => {
     }
   };
 
+  const handleAddWebSearch = () => {
+    if (webSearchInput.trim()) {
+      setWebSearchQueries(prev => [...prev, webSearchInput.trim()]);
+      setWebSearchInput('');
+    }
+  };
+  const handleRemoveWebSearch = (query: string) => {
+    setWebSearchQueries(prev => prev.filter(q => q !== query));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userPrompt.trim()) {
-      alert('Please enter a prompt.');
-      return;
-    }
-    if (!selectedNotion) {
-      alert('Please select a Notion page or database.');
-      return;
-    }
-    const formData = new FormData();
-    formData.append('user_query', userPrompt);
-    formData.append('notion_object', selectedNotion.object);
-    formData.append('notion_id', selectedNotion.id);
-    formData.append('files', fileSources[0].file);
-    formData.append('youtube_urls', JSON.stringify(sources.filter(source => source.type === 'youtube').map(source => source.content)));
-    formData.append('use_image_content', useImageContent.toString());
-    formData.append('web_search_query', enableWebSearch ? 'web search' : '');
+    console.log('Form submitted');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
+      if (!userPrompt.trim()) {
+        alert('Please enter a prompt.');
+        return;
+      }
+      if (!selectedNotion) {
+        alert('Please select a Notion page or database.');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('user_query', userPrompt);
+      formData.append('notion_object', selectedNotion.object);
+      formData.append('notion_id', selectedNotion.id);
+      // Append all files
+      fileSources.forEach(f => formData.append('files', f.file));
+      // Append all images
+      imageSources.forEach(img => formData.append('images', img.file));
+      // Send all sources (links, youtube, etc)
+      formData.append('sources', JSON.stringify(sources.map(s => ({ type: s.type, content: s.content }))));
+      // Send web search queries
+      formData.append('web_search_queries', JSON.stringify(webSearchQueries));
+      formData.append('use_image_content', useImageContent.toString());
+      const token = localStorage.getItem('token');
       const response = await fetch('/api/process', {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       const result = await response.json();
       if (result.success) {
         // Save chat to backend
         const chatPayload = {
           prompt: userPrompt,
-          files: fileSources.map(f => ({ name: f.file.name })), // Add url if available
+          files: fileSources.map(f => ({ name: f.file.name })),
           response: result.result,
         };
         try {
@@ -259,16 +284,28 @@ const MainPage: React.FC = () => {
             body: JSON.stringify(chatPayload),
             credentials: 'include',
           });
-          // Optionally show a toast or message
         } catch (err) {
           console.error('Error saving chat:', err);
         }
       }
-      // ... existing code for handling result ...
     } catch (err) {
       console.error('Error submitting form:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const canSubmit =
+    !!userPrompt.trim() &&
+    !!selectedNotion &&
+    acceptedTerms &&
+    (
+      sources.length > 0 ||
+      fileSources.length > 0 ||
+      imageSources.length > 0 ||
+      webSearchQueries.length > 0
+    ) &&
+    !isSubmitting;
 
   return (
     <Container
@@ -494,25 +531,6 @@ const MainPage: React.FC = () => {
             )}
           </Paper>
 
-          <Paper elevation={0} sx={styles.sectionPaper}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <Typography variant="h6">Web Search</Typography>
-              <InfoIcon color="action" fontSize="small" />
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Enable web search to automatically find and include relevant content from the internet based on your sources.
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={enableWebSearch}
-                  onChange={(e) => setEnableWebSearch(e.target.checked)}
-                />
-              }
-              label="Enable Web Search"
-            />
-          </Paper>
-
           {/* --- User Prompt Input --- */}
           <Paper elevation={0} sx={styles.sectionPaper}>
             <Typography variant="h6" mb={2}>Describe how you want your content to be used to generate notes <span style={{ color: theme.palette.error.main }}>*</span></Typography>
@@ -591,6 +609,42 @@ const MainPage: React.FC = () => {
             />
           </Paper>
 
+          {/* --- Web Search Queries --- */}
+          <Paper elevation={0} sx={styles.sectionPaper}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <Typography variant="h6">Web Search Queries</Typography>
+              <InfoIcon color="action" fontSize="small" />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Add web search queries to include relevant content from the internet. You can add multiple queries.
+            </Typography>
+            <Stack spacing={2} direction="row" alignItems="center">
+              <TextField
+                fullWidth
+                variant="outlined"
+                placeholder="Enter web search query"
+                value={webSearchInput}
+                onChange={e => setWebSearchInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') handleAddWebSearch();
+                }}
+              />
+              <Button variant="contained" onClick={handleAddWebSearch} startIcon={<AddIcon />}>Add</Button>
+            </Stack>
+            {webSearchQueries.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                {webSearchQueries.map(query => (
+                  <Chip
+                    key={query}
+                    label={query}
+                    onDelete={() => handleRemoveWebSearch(query)}
+                    sx={{ mr: 1, mb: 1 }}
+                  />
+                ))}
+              </Box>
+            )}
+          </Paper>
+
           {/* --- Terms and Conditions --- */}
           <Paper elevation={0} sx={styles.sectionPaper}>
             <FormControlLabel
@@ -620,7 +674,7 @@ const MainPage: React.FC = () => {
               variant="contained"
               size="large"
               type="submit"
-              disabled={sources.length === 0 || !acceptedTerms}
+              disabled={!canSubmit}
               sx={styles.generateButton}
             >
               Generate Notion Notes

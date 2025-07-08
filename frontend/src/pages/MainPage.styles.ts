@@ -1,4 +1,3 @@
-import { Margin } from '@mui/icons-material';
 import { alpha, Theme } from '@mui/material/styles';
 
 export const styles = {
