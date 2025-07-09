@@ -1,17 +1,35 @@
 import ray
 import os
 import json
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Request
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from processing.tasks import process_files, process_youtube_videos
 from graph.main_graph import langgraph_app
-import tempfile
-from typing import List, Optional
+from typing import List, Optional, Tuple, Dict, Any
 import uvicorn
+import logging
+from pathlib import Path
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Constants
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'pdf', 'docx', 'pptx', 'xlsx', 'png', 'jpg', 'jpeg'}
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
 
 # Initialize Ray
-ray.init(ignore_reinit_error=True)
+try:
+    if not ray.is_initialized():
+        ray.init(ignore_reinit_error=True)
+        logger.info("Ray initialized successfully")
+    else:
+        logger.info("Ray already initialized")
+except Exception as e:
+    logger.error(f"Failed to initialize Ray: {e}")
+    raise
 
 # Initialize FastAPI app
 app = FastAPI(title="Notion Agent API", version="1.0.0")
@@ -19,25 +37,20 @@ app = FastAPI(title="Notion Agent API", version="1.0.0")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
+    allow_origins=["*"],  # TODO update this for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'pdf', 'docx', 'pptx', 'xlsx', 'png', 'jpg', 'jpeg'}
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-def allowed_file(filename):
+def allowed_file(filename: str) -> bool:
     """Check if file extension is allowed."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def get_file_type(filename):
+def get_file_type(filename: str) -> str:
     """Determine file type from filename."""
     ext = filename.rsplit('.', 1)[1].lower()
     if ext in ['png', 'jpg', 'jpeg']:
@@ -53,106 +66,91 @@ def get_file_type(filename):
     else:
         return 'unknown'
 
+async def save_uploaded_file(file: UploadFile) -> str:
+    """
+    Safely save uploaded file to temporary location.
+    Returns path to saved temporary file.
+    """
+    logger.info(f"Attempting to save file: {file.filename}")
+    temp_path = Path(UPLOAD_FOLDER) / file.filename
 
-LANGCHAIN_API_KEY = os.environ.get('LANGCHAIN_API_KEY')
+    # Read ONCE
+    content = await file.read()
+    logger.info(f"Content: {content}")
+    
+    with open(temp_path, "wb") as f:
+        f.write(content)
+        
+    logger.info(f"Successfully saved file {file.filename} to {temp_path}")
+    return str(temp_path)
+        
+
+def cleanup_temp_files(temp_paths: List[str]) -> None:
+    """
+    Clean up temporary files.
+    """
+    for temp_path in temp_paths:
+        try:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+                logger.info(f"Cleaned up temporary file: {temp_path}")
+        except Exception as e:
+            logger.info(f"Failed to clean up temporary file {temp_path}: {e}")
 
 class NotionAgentApp:
     """
     Main application class that orchestrates file processing and LangGraph workflow.
     """
-    
     def __init__(self):
-        """Initialize the application."""
         self.langgraph_app = langgraph_app
-    
-    def process_uploaded_files(self, files: List[UploadFile], use_image_content: bool = False):
-        """
-        Process uploaded files using Ray for parallel processing.
-        
-        Args:
-            files: List of uploaded file objects
-            use_image_content: Whether to extract text content from images
-            
-        Returns:
-            List of processed file results
-        """
-        if not files:
+
+    def process_uploaded_files(self, file_tuples: List[Tuple[str, str]], use_image_content: bool = False) -> List[Dict[str, Any]]:
+        if not file_tuples:
+            logger.info("No files provided for processing.")
             return []
-        
         futures = []
-        temp_files = []
-        
-        try:
-            for file in files:
-                if file and allowed_file(file.filename):
-                    # Save file to temporary location
-                    filename = file.filename
-                    temp_path = os.path.join(tempfile.gettempdir(), filename)
-                    
-                    # Save uploaded file to temp location
-                    with open(temp_path, "wb") as buffer:
-                        content = file.file.read()
-                        buffer.write(content)
-                    
-                    temp_files.append(temp_path)
-                    
-                    # Determine file type
-                    file_type = get_file_type(filename)
-                    
-                    # Submit processing task
-                    future = process_files.remote(temp_path, file_type, use_image_content)
-                    futures.append(future)
-            
-            # Wait for all processing to complete
-            results = ray.get(futures) if futures else []
-            
-            return results
-            
-        finally:
-            # Clean up temporary files
-            for temp_file in temp_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
-                except Exception as e:
-                    print(f"Error cleaning up {temp_file}: {e}")
-    
-    def process_youtube_urls(self, youtube_urls: List[str]):
-        """
-        Process YouTube URLs using Ray.
-        
-        Args:
-            youtube_urls: List of YouTube URLs
-            
-        Returns:
-            List of processed YouTube results
-        """
-        if not youtube_urls:
+        logger.info(f"Processing {len(file_tuples)} files...")
+        for temp_path, filename in file_tuples:
+            if not os.path.exists(temp_path):
+                logger.error(f"File does not exist: {temp_path}")
+                continue
+            if not os.access(temp_path, os.R_OK):
+                logger.error(f"File is not readable: {temp_path}")
+                continue
+            if allowed_file(filename):
+                file_type = get_file_type(filename)
+                logger.info(f"Processing {filename} as {file_type} with boolean {use_image_content}")
+                future = process_files.remote(temp_path, file_type, use_image_content)
+                futures.append(future)
+            else:
+                logger.info(f"File {filename} is not allowed and will be skipped.")
+        if futures:
+            try:
+                results = ray.get(futures)
+                logger.info(f"File processing completed: {len(results)} results")
+                return results
+            except Exception as e:
+                logger.error(f"Error during file processing: {e}")
+                return [{"error": str(e)}]
+        else:
+            logger.info("No valid files to process")
             return []
-        
+
+    def process_youtube_urls(self, youtube_urls: List[str]) -> List[Dict[str, Any]]:
+        if not youtube_urls:
+            logger.info("No YouTube URLs provided")
+            return []
         try:
+            logger.info(f"Processing {len(youtube_urls)} YouTube URLs")
             future = process_youtube_videos.remote(youtube_urls)
             results = ray.get([future])
             return results[0] if results else []
         except Exception as e:
-            print(f"Error processing YouTube URLs: {e}")
-            return []
-    
-    def aggregate_content(self, file_results, youtube_results, web_search_query: Optional[str] = None):
-        """
-        Aggregate content from all sources.
-        
-        Args:
-            file_results: Results from file processing
-            youtube_results: Results from YouTube processing
-            web_search_query: Optional web search query
-            
-        Returns:
-            Aggregated text content
-        """
+            logger.error(f"Error processing YouTube URLs: {e}")
+            return [{"error": str(e)}]
+
+    def aggregate_content(self, file_results: List[Dict[str, Any]], youtube_results: List[Dict[str, Any]], web_search_query: Optional[str] = None) -> str:
         aggregated_parts = []
-        
-        # Process file results
         for result in file_results:
             if isinstance(result, dict):
                 if 'content' in result and result.get('parsed', True):
@@ -161,49 +159,45 @@ class NotionAgentApp:
                     aggregated_parts.append(f"[Image File] {result['image_path']}")
                 elif 'error' in result:
                     aggregated_parts.append(f"[File Error] {result['error']}")
-        
-        # Process YouTube results
         for result in youtube_results:
             if isinstance(result, dict):
                 if 'transcript' in result:
                     aggregated_parts.append(f"[YouTube Transcript] {result['transcript']}")
                 elif 'error' in result:
                     aggregated_parts.append(f"[YouTube Error] {result['error']}")
-        
-        # Add web search query if provided
         if web_search_query:
             aggregated_parts.append(f"[Web Search Query] {web_search_query}")
-        
         return "\n\n".join(aggregated_parts)
-    
-    def run_langgraph_workflow(self, user_query: str, context: str = ""):
-        """
-        Run the LangGraph workflow with user query and context.
-        Adds LangSmith tracing if enabled.
-        """
+
+    def run_langgraph_workflow(self, user_query: str, context: str = "") -> Dict[str, Any]:
         try:
-            # Prepare the input for LangGraph
             if context:
                 full_input = f"Context from uploaded files:\n{context}\n\nUser Request: {user_query}"
             else:
                 full_input = user_query
-            # Run the LangGraph workflow 
-            result = self.langgraph_app.invoke({
-                "user_input": full_input
-            })
+            logger.info(f"Running LangGraph workflow with input length: {len(full_input)}")
+            # Defensive: set a lower recursion limit and catch recursion errors
+            try:
+                result = self.langgraph_app.invoke(
+                    {"user_input": full_input},
+                    config={"recursion_limit": 20}  # Lowered for safety
+                )
+            except RecursionError as re:
+                logger.error(f"LangGraph recursion error: {re}")
+                return {"success": False, "error": "Workflow recursion limit reached. Please try a simpler request.", "result": None}
+            except Exception as e:
+                logger.error(f"LangGraph workflow error: {e}")
+                return {"success": False, "error": str(e), "result": None}
+            logger.info("LangGraph workflow completed successfully")
             return {
                 "success": True,
                 "result": result.get("final_output", "No output generated"),
                 "workflow_state": result
             }
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "result": None
-            }
+            logger.error(f"LangGraph workflow error (outer): {e}")
+            return {"success": False, "error": str(e), "result": None}
 
-# Initialize the app instance
 notion_app = NotionAgentApp()
 
 @app.post("/api/process")
@@ -217,97 +211,107 @@ async def process_and_generate(
     files: List[UploadFile] = File([]),
     images: List[UploadFile] = File([])
 ):
-    print("[app.py] /api/process called")
+    temp_paths: List[str] = []
     try:
         sources_list = json.loads(sources)
         web_search_queries_list = json.loads(web_search_queries)
         use_image_content_bool = use_image_content.lower() == "true"
         youtube_urls_list = [s['content'] for s in sources_list if s.get('type') == 'youtube']
-        print(f"Processing request: {user_query}")
-        print(f"Notion object: {notion_object}, Notion id: {notion_id}")
-        print(f"Sources: {sources_list}")
-        print(f"Web search queries: {web_search_queries_list}")
-        print(f"Files: {len(files)}, Images: {len(images)}")
-        print(f"YouTube URLs: {youtube_urls_list}")
-        print(f"Use image content: {use_image_content_bool}")
+
         all_files = files + images
-        file_results = notion_app.process_uploaded_files(all_files, use_image_content_bool)
-        print(f"File processing completed: {len(file_results)} results")
-        # Check for file processing errors
+        file_tuples: List[Tuple[str, str]] = []
+        for file in all_files:
+            if not file or not file.filename:
+                continue
+            if allowed_file(file.filename):
+                try:
+                    temp_path = await save_uploaded_file(file)
+                    temp_paths.append(temp_path)
+                    file_tuples.append((temp_path, file.filename))
+                except Exception as e:
+                    return {"error": f"Failed to save uploaded file {file.filename}: {e}"}
+            else:
+                return {"error": f"File type not allowed: {file.filename}"}
+
+        file_results = notion_app.process_uploaded_files(file_tuples, use_image_content_bool)
         file_errors = [f for f in file_results if isinstance(f, dict) and f.get('error')]
-        if file_errors:
-            print(f"File processing errors: {file_errors}")
-            raise HTTPException(status_code=400, detail="One or more files could not be processed. Please check your files and try again.")
         youtube_results = notion_app.process_youtube_urls(youtube_urls_list)
-        print(f"YouTube processing completed: {len(youtube_results)} results")
         web_search_context = '\n'.join(web_search_queries_list) if web_search_queries_list else None
         aggregated_content = notion_app.aggregate_content(
             file_results, youtube_results, web_search_context
         )
-        print(f"Aggregated content length: {len(aggregated_content)}")
         langgraph_result = notion_app.run_langgraph_workflow(user_query, aggregated_content)
-        if langgraph_result["success"]:
-            return {
-                "success": True,
-                "result": langgraph_result["result"],
-                "processed_files": len(file_results),
-                "processed_youtube": len(youtube_results),
-                "content_preview": aggregated_content[:500] + "..." if len(aggregated_content) > 500 else aggregated_content
-            }
-        else:
-            # Check for overloaded or external API errors
-            error_msg = str(langgraph_result["error"])
-            print(f"LangGraph error: {error_msg}")
-            if 'overloaded' in error_msg.lower():
-                raise HTTPException(status_code=503, detail="The AI service is currently overloaded. Please try again in a few minutes.")
-            raise HTTPException(status_code=500, detail="An error occurred while generating your notes. Please try again later.")
-    except HTTPException as e:
-        # Already user-friendly
-        raise e
+        cleanup_temp_files(temp_paths)
+        return {
+            "file_results": file_results,
+            "youtube_results": youtube_results,
+            "aggregated_content": aggregated_content,
+            "langgraph_result": langgraph_result,
+            "file_errors": file_errors
+        }
     except Exception as e:
-        print(f"Error in process_and_generate: {e}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred. Please try again later.")
+        cleanup_temp_files(temp_paths)
+        return {"error": str(e)}
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
     return {
-        "status": "healthy", 
+        "status": "healthy",
         "ray_status": ray.is_initialized(),
         "api": "FastAPI"
     }
 
 @app.post("/api/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
-    """
-    Simple file upload endpoint for testing.
-    """
     try:
         uploaded_files = []
         
+        logger.info(f"Upload endpoint received {len(files)} files")
+        
         for file in files:
-            if file and allowed_file(file.filename):
+            if not file or not file.filename:
+                logger.info("Received None file or file with no filename")
+                continue
+                
+            logger.info(f"Processing upload file: {file.filename}")
+            
+            if allowed_file(file.filename):
                 filename = file.filename
                 file_path = os.path.join(UPLOAD_FOLDER, filename)
                 
-                # Save uploaded file
-                with open(file_path, "wb") as buffer:
-                    content = file.file.read()
-                    buffer.write(content)
-                
-                uploaded_files.append({
-                    "filename": filename,
-                    "path": file_path,
-                    "size": os.path.getsize(file_path)
-                })
+                try:
+                    # Read file content
+                    content = await file.read()
+                    if not content:
+                        logger.info(f"File {filename} is empty")
+                        continue
+                    
+                    # Write to file
+                    with open(file_path, "wb") as buffer:
+                        buffer.write(content)
+                    
+                    file_size = os.path.getsize(file_path)
+                    logger.info(f"Successfully uploaded {filename} (size: {file_size} bytes)")
+                    
+                    uploaded_files.append({
+                        "filename": filename,
+                        "path": file_path,
+                        "size": file_size
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error processing upload file {filename}: {e}")
+                    continue
+            else:
+                logger.info(f"File type not allowed: {file.filename}")
         
         return {
             "success": True,
             "uploaded_files": uploaded_files
         }
-        
     except Exception as e:
+        logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5001) 
+    uvicorn.run(app, host="0.0.0.0", port=5001)

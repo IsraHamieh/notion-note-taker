@@ -12,7 +12,12 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  type: (req) => {
+    const contentType = req.headers['content-type'] || '';
+    return !contentType.startsWith('multipart/form-data');
+  }
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL,
   credentials: true,
@@ -38,7 +43,7 @@ mongoose.connect(mongoUri)
   });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 }); 

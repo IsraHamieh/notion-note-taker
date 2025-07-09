@@ -88,6 +88,9 @@ const MainPage: React.FC = () => {
   const [webSearchInput, setWebSearchInput] = useState('');
   const [webSearchQueries, setWebSearchQueries] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [progress, setProgress] = useState<string>("");
+  const [result, setResult] = useState<string>("");
+  const [error, setError] = useState<string>("");
   const theme = useTheme();
 
   const { getRootProps, getInputProps } = useDropzone({
@@ -235,9 +238,10 @@ const MainPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Form submitted');
-    if (isSubmitting) return;
     setIsSubmitting(true);
+    setProgress("Starting processing...");
+    setResult("");
+    setError("");
     try {
       if (!userPrompt.trim()) {
         alert('Please enter a prompt.');
@@ -269,27 +273,28 @@ const MainPage: React.FC = () => {
           'Authorization': `Bearer ${token}`
         }
       });
-      const result = await response.json();
-      if (result.success) {
-        // Save chat to backend
-        const chatPayload = {
-          prompt: userPrompt,
-          files: fileSources.map(f => ({ name: f.file.name })),
-          response: result.result,
-        };
-        try {
-          await fetch('/api/chats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(chatPayload),
-            credentials: 'include',
-          });
-        } catch (err) {
-          console.error('Error saving chat:', err);
+      if (!response.body) {
+        setError('No response from server.');
+        setIsSubmitting(false);
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let fullText = "";
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          setProgress(fullText);
         }
       }
+      setResult(fullText);
+      setProgress("Done.");
     } catch (err) {
-      console.error('Error submitting form:', err);
+      setError('Error submitting form: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSubmitting(false);
     }
@@ -682,6 +687,22 @@ const MainPage: React.FC = () => {
           </Box>
         </Stack>
       </form>
+      {/* Progress and result UI */}
+      {progress && (
+        <Box sx={{ my: 2 }}>
+          <Typography variant="body2" color="primary">{progress}</Typography>
+        </Box>
+      )}
+      {result && (
+        <Box sx={{ my: 2 }}>
+          <Typography variant="body1" color="success.main">{result}</Typography>
+        </Box>
+      )}
+      {error && (
+        <Box sx={{ my: 2 }}>
+          <Typography variant="body2" color="error">{error}</Typography>
+        </Box>
+      )}
     </Container>
   );
 };
